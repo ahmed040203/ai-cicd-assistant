@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PipeMind — AI CI/CD Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0b0f;
+    --bg2: #111318;
+    --bg3: #1a1d26;
+    --border: #252836;
+    --accent: #00e5ff;
+    --accent2: #7c3aed;
+    --green: #00ff88;
+    --red: #ff3860;
+    --yellow: #ffd600;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --font-mono: 'Space Mono', monospace;
+    --font-sans: 'DM Sans', sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font-sans); min-height: 100vh; }
+
+  /* HEADER */
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 0 2rem;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(10,11,15,0.92);
+    backdrop-filter: blur(12px);
+  }
+  .logo { font-family: var(--font-mono); font-size: 1.1rem; font-weight: 700; color: var(--accent); letter-spacing: -0.5px; }
+  .logo span { color: var(--muted); }
+  .header-status { display: flex; align-items: center; gap: 1.5rem; font-size: 0.8rem; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  .ai-url { font-family: var(--font-mono); font-size: 0.75rem; color: var(--muted); }
+
+  /* LAYOUT */
+  .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+
+  /* STATS ROW */
+  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 2rem; }
+  .stat-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem 1.5rem;
+    position: relative; overflow: hidden;
+    transition: border-color 0.2s;
+  }
+  .stat-card:hover { border-color: var(--accent); }
+  .stat-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: var(--accent-color, var(--accent));
+  }
+  .stat-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 0.5rem; }
+  .stat-value { font-family: var(--font-mono); font-size: 2rem; font-weight: 700; color: var(--text); }
+  .stat-sub { font-size: 0.75rem; color: var(--muted); margin-top: 0.25rem; }
+
+  /* MAIN GRID */
+  .main-grid { display: grid; grid-template-columns: 1fr 380px; gap: 1.5rem; }
+
+  /* PANEL */
+  .panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .panel-title { font-family: var(--font-mono); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; color: var(--accent); }
+  .panel-action {
+    background: var(--bg3); border: 1px solid var(--border);
+    color: var(--text); font-family: var(--font-sans); font-size: 0.8rem;
+    padding: 0.4rem 1rem; border-radius: 6px; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .panel-action:hover { border-color: var(--accent); color: var(--accent); }
+  .panel-body { padding: 1.5rem; }
+
+  /* FORM */
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
+  .field label { display: block; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 0.4rem; }
+  .field input, .field select, .field textarea {
+    width: 100%; background: var(--bg3); border: 1px solid var(--border);
+    color: var(--text); font-family: var(--font-sans); font-size: 0.875rem;
+    padding: 0.6rem 0.875rem; border-radius: 8px; outline: none;
+    transition: border-color 0.2s;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); }
+  .field textarea { resize: vertical; min-height: 80px; font-family: var(--font-mono); font-size: 0.8rem; }
+  .field select option { background: var(--bg3); }
+  .field.full { grid-column: 1/-1; }
+
+  .btn {
+    background: var(--accent); color: #000; font-family: var(--font-mono);
+    font-size: 0.8rem; font-weight: 700; padding: 0.7rem 1.5rem;
+    border: none; border-radius: 8px; cursor: pointer;
+    transition: all 0.2s; letter-spacing: 0.5px;
+  }
+  .btn:hover { background: #00c4db; transform: translateY(-1px); }
+  .btn:active { transform: translateY(0); }
+  .btn.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  .btn.secondary:hover { background: rgba(0,229,255,0.08); }
+  .btn-row { display: flex; gap: 0.75rem; margin-top: 1rem; }
+
+  /* TABS */
+  .tabs { display: flex; gap: 0.25rem; padding: 0 1.5rem; border-bottom: 1px solid var(--border); }
+  .tab {
+    font-family: var(--font-mono); font-size: 0.75rem; padding: 0.875rem 1rem;
+    cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent;
+    transition: all 0.2s; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab:hover:not(.active) { color: var(--text); }
+
+  /* RESULTS */
+  #result-area { display: none; margin-top: 1.5rem; }
+  .result-card {
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 10px; padding: 1.25rem;
+    animation: fadeIn 0.3s ease;
+  }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+  .result-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+  .severity-badge {
+    font-family: var(--font-mono); font-size: 0.7rem; padding: 0.25rem 0.6rem;
+    border-radius: 4px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700;
+  }
+  .sev-critical { background: rgba(255,56,96,0.15); color: var(--red); border: 1px solid rgba(255,56,96,0.3); }
+  .sev-high { background: rgba(255,214,0,0.1); color: var(--yellow); border: 1px solid rgba(255,214,0,0.3); }
+  .sev-medium { background: rgba(0,229,255,0.1); color: var(--accent); border: 1px solid rgba(0,229,255,0.2); }
+  .sev-low { background: rgba(0,255,136,0.1); color: var(--green); border: 1px solid rgba(0,255,136,0.2); }
+
+  .result-section { margin-bottom: 1rem; }
+  .result-section-title { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 0.4rem; }
+  .result-text { font-size: 0.875rem; line-height: 1.6; color: var(--text); }
+  .steps-list { list-style: none; }
+  .steps-list li {
+    display: flex; align-items: flex-start; gap: 0.75rem;
+    padding: 0.5rem 0; border-bottom: 1px solid var(--border); font-size: 0.85rem;
+  }
+  .steps-list li:last-child { border-bottom: none; }
+  .step-num { font-family: var(--font-mono); font-size: 0.7rem; color: var(--accent); background: rgba(0,229,255,0.08); padding: 0.15rem 0.4rem; border-radius: 4px; flex-shrink: 0; }
+  .code-block {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 0.75rem 1rem;
+    font-family: var(--font-mono); font-size: 0.8rem; color: var(--green);
+    word-break: break-all; margin-top: 0.4rem;
+  }
+
+  /* SIDEBAR */
+  .sidebar { display: flex; flex-direction: column; gap: 1.5rem; }
+
+  /* PIPELINE STATUS */
+  .pipeline-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.75rem 0; border-bottom: 1px solid var(--border);
+  }
+  .pipeline-item:last-child { border-bottom: none; }
+  .pipeline-name { font-family: var(--font-mono); font-size: 0.8rem; color: var(--text); }
+  .pipeline-meta { font-size: 0.72rem; color: var(--muted); margin-top: 0.15rem; }
+  .pip-status {
+    font-family: var(--font-mono); font-size: 0.7rem; padding: 0.2rem 0.5rem;
+    border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .pip-success { background: rgba(0,255,136,0.1); color: var(--green); }
+  .pip-failed { background: rgba(255,56,96,0.1); color: var(--red); }
+  .pip-running { background: rgba(0,229,255,0.1); color: var(--accent); animation: pulse 1.5s infinite; }
+
+  /* HISTORY */
+  .history-item {
+    padding: 0.875rem 0;
+    border-bottom: 1px solid var(--border);
+    animation: fadeIn 0.3s ease;
+  }
+  .history-item:last-child { border-bottom: none; }
+  .history-type { font-family: var(--font-mono); font-size: 0.7rem; color: var(--muted); text-transform: uppercase; margin-bottom: 0.25rem; }
+  .history-service { font-size: 0.875rem; color: var(--text); font-weight: 500; }
+  .history-time { font-size: 0.72rem; color: var(--muted); margin-top: 0.2rem; }
+  .history-empty { text-align: center; color: var(--muted); font-size: 0.85rem; padding: 2rem 0; }
+
+  /* LOADING */
+  .loading {
+    display: none; align-items: center; gap: 0.75rem;
+    font-family: var(--font-mono); font-size: 0.8rem; color: var(--accent);
+    margin-top: 1rem;
+  }
+  .spinner {
+    width: 16px; height: 16px;
+    border: 2px solid rgba(0,229,255,0.2);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* METRICS GRID */
+  .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .metric-slider label { display: flex; justify-content: space-between; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 0.5rem; }
+  .metric-slider label span { color: var(--accent); font-family: var(--font-mono); }
+  input[type=range] { width: 100%; -webkit-appearance: none; height: 4px; background: var(--border); border-radius: 2px; outline: none; cursor: pointer; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); cursor: pointer; }
+
+  /* ANOMALY */
+  .anomaly-result { margin-top: 1.5rem; display: none; }
+  .anomaly-card {
+    border-radius: 10px; padding: 1.25rem;
+    background: var(--bg3); border: 1px solid;
+    animation: fadeIn 0.3s ease;
+  }
+  .anomaly-card.is-anomaly { border-color: rgba(255,56,96,0.4); background: rgba(255,56,96,0.05); }
+  .anomaly-card.no-anomaly { border-color: rgba(0,255,136,0.4); background: rgba(0,255,136,0.05); }
+  .anomaly-title { font-family: var(--font-mono); font-size: 1rem; font-weight: 700; margin-bottom: 0.5rem; }
+  .anomaly-card.is-anomaly .anomaly-title { color: var(--red); }
+  .anomaly-card.no-anomaly .anomaly-title { color: var(--green); }
+
+  /* SCALE RESULT */
+  .scale-result { margin-top: 1.5rem; display: none; }
+  .scale-action-badge {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    font-family: var(--font-mono); font-size: 0.9rem; font-weight: 700;
+    padding: 0.5rem 1rem; border-radius: 8px; margin-bottom: 1rem;
+  }
+  .action-up { background: rgba(255,56,96,0.1); color: var(--red); border: 1px solid rgba(255,56,96,0.3); }
+  .action-down { background: rgba(0,229,255,0.1); color: var(--accent); border: 1px solid rgba(0,229,255,0.2); }
+  .action-none { background: rgba(0,255,136,0.1); color: var(--green); border: 1px solid rgba(0,255,136,0.2); }
+
+  /* SCROLLBAR */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* RESPONSIVE */
+  @media (max-width: 1100px) {
+    .main-grid { grid-template-columns: 1fr; }
+    .stats-grid { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">PipeMind<span>/</span>AI</div>
+  <div class="header-status">
+    <div style="display:flex;align-items:center;gap:0.5rem">
+      <div class="status-dot" id="eng-dot"></div>
+      <span id="eng-status" style="font-size:0.78rem;color:var(--muted)">Connecting...</span>
+    </div>
+    <div class="ai-url" id="api-url">http://98.88.97.163:8010</div>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- STATS -->
+  <div class="stats-grid">
+    <div class="stat-card" style="--accent-color:var(--accent)">
+      <div class="stat-label">Total Analyses</div>
+      <div class="stat-value" id="stat-total">—</div>
+      <div class="stat-sub">AI engine invocations</div>
+    </div>
+    <div class="stat-card" style="--accent-color:var(--red)">
+      <div class="stat-label">Failures Analyzed</div>
+      <div class="stat-value" id="stat-failures">—</div>
+      <div class="stat-sub">Pipeline failures</div>
+    </div>
+    <div class="stat-card" style="--accent-color:var(--yellow)">
+      <div class="stat-label">Anomalies Detected</div>
+      <div class="stat-value" id="stat-anomalies">—</div>
+      <div class="stat-sub">Metric deviations</div>
+    </div>
+    <div class="stat-card" style="--accent-color:var(--green)">
+      <div class="stat-label">Scaling Advice</div>
+      <div class="stat-value" id="stat-scaling">—</div>
+      <div class="stat-sub">Recommendations</div>
+    </div>
+  </div>
+
+  <!-- MAIN GRID -->
+  <div class="main-grid">
+
+    <!-- LEFT PANEL -->
+    <div>
+      <div class="panel">
+        <div class="tabs">
+          <div class="tab active" onclick="switchTab('failure',this)">Failure Analysis</div>
+          <div class="tab" onclick="switchTab('scaling',this)">Scaling Advisor</div>
+          <div class="tab" onclick="switchTab('anomaly',this)">Anomaly Detect</div>
+        </div>
+
+        <!-- FAILURE TAB -->
+        <div id="tab-failure" class="panel-body">
+          <div class="form-grid">
+            <div class="field">
+              <label>Service Name</label>
+              <select id="f-service">
+                <option>user-service</option>
+                <option>product-service</option>
+                <option>order-service</option>
+                <option>payment-service</option>
+                <option>notification-service</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Pipeline</label>
+              <input type="text" id="f-pipeline" value="user-service-pipeline">
+            </div>
+            <div class="field">
+              <label>Failed Stage</label>
+              <select id="f-stage">
+                <option>Push to ECR</option>
+                <option>Build Docker Image</option>
+                <option>Run Tests</option>
+                <option>Deploy to ECS</option>
+                <option>Checkout</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Build Number</label>
+              <input type="number" id="f-build" value="5">
+            </div>
+            <div class="field full">
+              <label>Error Logs</label>
+              <textarea id="f-logs" placeholder="Paste error logs here...">aws: not found
+/var/lib/jenkins/workspace/user-service-pipeline@tmp/durable-f7496b1f/script.sh.copy: 2: aws: not found
+script returned exit code 127</textarea>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn" onclick="analyzeFailure()">⚡ Analyze Failure</button>
+            <button class="btn secondary" onclick="loadSample('failure')">Load Sample</button>
+          </div>
+          <div class="loading" id="f-loading"><div class="spinner"></div>Analyzing with AI...</div>
+          <div id="result-area"></div>
+        </div>
+
+        <!-- SCALING TAB -->
+        <div id="tab-scaling" class="panel-body" style="display:none">
+          <div class="form-grid">
+            <div class="field">
+              <label>Service</label>
+              <select id="s-service">
+                <option>user-service</option>
+                <option>product-service</option>
+                <option>order-service</option>
+                <option>payment-service</option>
+                <option>notification-service</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Period (minutes)</label>
+              <input type="number" id="s-period" value="5">
+            </div>
+          </div>
+          <div class="metrics-grid" style="margin-bottom:1rem">
+            <div class="metric-slider">
+              <label>CPU % <span id="s-cpu-val">75</span></label>
+              <input type="range" min="0" max="100" value="75" id="s-cpu" oninput="document.getElementById('s-cpu-val').textContent=this.value">
+            </div>
+            <div class="metric-slider">
+              <label>Memory % <span id="s-mem-val">60</span></label>
+              <input type="range" min="0" max="100" value="60" id="s-mem" oninput="document.getElementById('s-mem-val').textContent=this.value">
+            </div>
+            <div class="metric-slider">
+              <label>Request Rate <span id="s-rps-val">120</span></label>
+              <input type="range" min="0" max="500" value="120" id="s-rps" oninput="document.getElementById('s-rps-val').textContent=this.value">
+            </div>
+            <div class="metric-slider">
+              <label>Error Rate % <span id="s-err-val">2</span></label>
+              <input type="range" min="0" max="20" value="2" step="0.1" id="s-err" oninput="document.getElementById('s-err-val').textContent=this.value">
+            </div>
+          </div>
+          <div class="form-grid">
+            <div class="field">
+              <label>Avg Response (ms)</label>
+              <input type="number" id="s-rt" value="450">
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn" onclick="getScaling()">📈 Get Advice</button>
+            <button class="btn secondary" onclick="loadSample('scaling')">High Load Sample</button>
+          </div>
+          <div class="loading" id="s-loading"><div class="spinner"></div>Calculating scaling recommendation...</div>
+          <div class="scale-result" id="scale-result"></div>
+        </div>
+
+        <!-- ANOMALY TAB -->
+        <div id="tab-anomaly" class="panel-body" style="display:none">
+          <div class="form-grid">
+            <div class="field">
+              <label>Service</label>
+              <select id="a-service">
+                <option>user-service</option>
+                <option>product-service</option>
+                <option>order-service</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Metric Name</label>
+              <select id="a-metric">
+                <option value="cpu_percent">CPU Usage (%)</option>
+                <option value="memory_percent">Memory Usage (%)</option>
+                <option value="error_rate">Error Rate (%)</option>
+                <option value="response_time_ms">Response Time (ms)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Current Value</label>
+              <input type="number" id="a-current" value="85">
+            </div>
+            <div class="field">
+              <label>Baseline (normal)</label>
+              <input type="number" id="a-baseline" value="30">
+            </div>
+            <div class="field">
+              <label>Threshold % deviation</label>
+              <input type="number" id="a-threshold" value="50">
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn" onclick="detectAnomaly()">🔍 Detect Anomaly</button>
+            <button class="btn secondary" onclick="loadSample('anomaly')">Load Spike Sample</button>
+          </div>
+          <div class="loading" id="a-loading"><div class="spinner"></div>Running anomaly detection...</div>
+          <div class="anomaly-result" id="anomaly-result"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+
+      <!-- PIPELINES STATUS -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Pipeline Status</div>
+          <button class="panel-action" onclick="refreshPipelines()">↻ Refresh</button>
+        </div>
+        <div class="panel-body" style="padding:0.5rem 1.5rem">
+          <div id="pipelines-list">
+            <div class="pipeline-item">
+              <div><div class="pipeline-name">user-service</div><div class="pipeline-meta">Build #3 · 9.8s</div></div>
+              <span class="pip-status pip-success">SUCCESS</span>
+            </div>
+            <div class="pipeline-item">
+              <div><div class="pipeline-name">product-service</div><div class="pipeline-meta">Build #3 · 8.7s</div></div>
+              <span class="pip-status pip-success">SUCCESS</span>
+            </div>
+            <div class="pipeline-item">
+              <div><div class="pipeline-name">order-service</div><div class="pipeline-meta">Build #3 · 9.5s</div></div>
+              <span class="pip-status pip-success">SUCCESS</span>
+            </div>
+            <div class="pipeline-item">
+              <div><div class="pipeline-name">payment-service</div><div class="pipeline-meta">Build #1 · 8.9s</div></div>
+              <span class="pip-status pip-success">SUCCESS</span>
+            </div>
+            <div class="pipeline-item">
+              <div><div class="pipeline-name">notification-service</div><div class="pipeline-meta">Build #1 · 22s</div></div>
+              <span class="pip-status pip-success">SUCCESS</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI HISTORY -->
+      <div class="panel" style="flex:1">
+        <div class="panel-header">
+          <div class="panel-title">AI Analysis History</div>
+          <button class="panel-action" onclick="loadHistory()">↻ Load</button>
+        </div>
+        <div class="panel-body" style="padding:0.5rem 1.5rem;max-height:320px;overflow-y:auto" id="history-list">
+          <div class="history-empty">No analyses yet.<br>Run a query to see history.</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+const API = 'http://98.88.97.163:8010';
+
+// Check AI Engine health
+async function checkHealth() {
+  try {
+    const r = await fetch(API + '/health', {signal: AbortSignal.timeout(3000)});
+    const d = await r.json();
+    document.getElementById('eng-dot').style.background = 'var(--green)';
+    document.getElementById('eng-dot').style.boxShadow = '0 0 8px var(--green)';
+    document.getElementById('eng-status').textContent = 'AI Engine Online · ' + d.model;
+    loadStats();
+  } catch(e) {
+    document.getElementById('eng-dot').style.background = 'var(--red)';
+    document.getElementById('eng-dot').style.boxShadow = 'none';
+    document.getElementById('eng-status').textContent = 'AI Engine Offline';
+  }
+}
+
+async function loadStats() {
+  try {
+    const r = await fetch(API + '/api/ai/stats');
+    const d = await r.json();
+    document.getElementById('stat-total').textContent = d.total_analyses;
+    document.getElementById('stat-failures').textContent = d.pipeline_failures_analyzed;
+    document.getElementById('stat-anomalies').textContent = d.anomalies_detected;
+    document.getElementById('stat-scaling').textContent = d.scaling_recommendations;
+  } catch(e) {}
+}
+
+function switchTab(name, el) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  ['failure','scaling','anomaly'].forEach(t => {
+    document.getElementById('tab-'+t).style.display = t===name ? 'block' : 'none';
+  });
+}
+
+function sevClass(s) {
+  const m = {critical:'sev-critical',high:'sev-high',medium:'sev-medium',low:'sev-low'};
+  return m[s] || 'sev-medium';
+}
+
+async function analyzeFailure() {
+  const loading = document.getElementById('f-loading');
+  const area = document.getElementById('result-area');
+  loading.style.display = 'flex'; area.style.display = 'none';
+  try {
+    const r = await fetch(API + '/api/ai/analyze-failure', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        pipeline_name: document.getElementById('f-pipeline').value,
+        service_name: document.getElementById('f-service').value,
+        failed_stage: document.getElementById('f-stage').value,
+        error_logs: document.getElementById('f-logs').value,
+        build_number: parseInt(document.getElementById('f-build').value),
+        branch: 'main'
+      })
+    });
+    const d = await r.json();
+    const a = d.analysis;
+    area.innerHTML = `
+      <div class="result-card">
+        <div class="result-header">
+          <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--muted)">${d.id}</div>
+          <span class="severity-badge ${sevClass(a.severity)}">${a.severity}</span>
+        </div>
+        <div class="result-section">
+          <div class="result-section-title">Root Cause</div>
+          <div class="result-text">${a.root_cause}</div>
+        </div>
+        <div class="result-section">
+          <div class="result-section-title">Fix Steps</div>
+          <ul class="steps-list">
+            ${(a.fix_steps||[]).map((s,i)=>`<li><span class="step-num">${i+1}</span>${s}</li>`).join('')}
+          </ul>
+        </div>
+        ${a.code_fix ? `<div class="result-section">
+          <div class="result-section-title">Command</div>
+          <div class="code-block">$ ${a.code_fix}</div>
+        </div>` : ''}
+        <div style="display:flex;gap:1.5rem;margin-top:0.75rem">
+          <div><div class="result-section-title">Est. Fix Time</div><div style="font-family:var(--font-mono);font-size:0.85rem;color:var(--accent)">${a.estimated_fix_time}</div></div>
+          <div><div class="result-section-title">Prevention</div><div style="font-size:0.8rem;color:var(--muted);max-width:300px">${a.prevention}</div></div>
+        </div>
+      </div>`;
+    area.style.display = 'block';
+    addHistory({type:'pipeline_failure', service:d.service_name, time: new Date().toLocaleTimeString()});
+    loadStats();
+  } catch(e) {
+    area.innerHTML = `<div class="result-card"><div style="color:var(--red)">Error: ${e.message}</div></div>`;
+    area.style.display = 'block';
+  }
+  loading.style.display = 'none';
+}
+
+async function getScaling() {
+  const loading = document.getElementById('s-loading');
+  const area = document.getElementById('scale-result');
+  loading.style.display = 'flex'; area.style.display = 'none';
+  try {
+    const r = await fetch(API + '/api/ai/scaling-advice', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        service_name: document.getElementById('s-service').value,
+        cpu_percent: parseFloat(document.getElementById('s-cpu').value),
+        memory_percent: parseFloat(document.getElementById('s-mem').value),
+        request_rate: parseFloat(document.getElementById('s-rps').value),
+        error_rate: parseFloat(document.getElementById('s-err').value),
+        avg_response_time_ms: parseFloat(document.getElementById('s-rt').value),
+        period_minutes: parseInt(document.getElementById('s-period').value)
+      })
+    });
+    const d = await r.json();
+    const rec = d.recommendation;
+    const cls = {scale_up:'action-up',scale_down:'action-down',no_change:'action-none'}[rec.action]||'action-none';
+    const icons = {scale_up:'🔺',scale_down:'🔻',no_change:'✓'};
+    area.innerHTML = `
+      <div class="result-card">
+        <div class="scale-action-badge ${cls}">${icons[rec.action]||''} ${rec.action?.toUpperCase().replace('_',' ')}</div>
+        <div class="result-section">
+          <div class="result-section-title">Reason</div>
+          <div class="result-text">${rec.reason}</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+          <div><div class="result-section-title">Recommended Instances</div><div style="font-family:var(--font-mono);font-size:1.5rem;color:var(--accent)">${rec.recommended_instances}</div></div>
+          <div><div class="result-section-title">Urgency</div><div style="font-family:var(--font-mono);font-size:0.85rem;color:var(--yellow)">${rec.urgency}</div></div>
+          <div><div class="result-section-title">Bottleneck</div><div style="font-size:0.85rem">${rec.current_bottleneck}</div></div>
+          <div><div class="result-section-title">Cost Impact</div><div style="font-size:0.85rem;color:var(--green)">${rec.cost_impact}</div></div>
+        </div>
+        ${rec.auto_scale_command ? `<div class="result-section">
+          <div class="result-section-title">AWS CLI Command</div>
+          <div class="code-block">$ ${rec.auto_scale_command}</div>
+        </div>` : ''}
+      </div>`;
+    area.style.display = 'block';
+    addHistory({type:'scaling_advice', service:d.service_name, time: new Date().toLocaleTimeString()});
+    loadStats();
+  } catch(e) {
+    area.innerHTML = `<div class="result-card"><div style="color:var(--red)">Error: ${e.message}</div></div>`;
+    area.style.display = 'block';
+  }
+  loading.style.display = 'none';
+}
+
+async function detectAnomaly() {
+  const loading = document.getElementById('a-loading');
+  const area = document.getElementById('anomaly-result');
+  loading.style.display = 'flex'; area.style.display = 'none';
+  try {
+    const r = await fetch(API + '/api/ai/detect-anomaly', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        service_name: document.getElementById('a-service').value,
+        metric_name: document.getElementById('a-metric').value,
+        current_value: parseFloat(document.getElementById('a-current').value),
+        baseline_value: parseFloat(document.getElementById('a-baseline').value),
+        threshold_percent: parseFloat(document.getElementById('a-threshold').value)
+      })
+    });
+    const d = await r.json();
+    const ai = d.ai_analysis;
+    const cls = d.is_anomaly ? 'is-anomaly' : 'no-anomaly';
+    area.innerHTML = `
+      <div class="anomaly-card ${cls}">
+        <div class="anomaly-title">${d.is_anomaly ? '⚠ ANOMALY DETECTED' : '✓ Normal Range'}</div>
+        <div style="font-family:var(--font-mono);font-size:0.8rem;color:var(--muted);margin-bottom:1rem">
+          ${d.metric_name} · Deviation: ${d.deviation_percent}%
+          · Current: ${d.current_value} · Baseline: ${d.baseline_value}
+        </div>
+        ${d.is_anomaly ? `
+        <div class="result-section">
+          <div class="result-section-title">Impact</div>
+          <div class="result-text">${ai.impact}</div>
+        </div>
+        <div class="result-section">
+          <div class="result-section-title">Likely Cause</div>
+          <div class="result-text">${ai.likely_cause}</div>
+        </div>
+        <div class="result-section">
+          <div class="result-section-title">Immediate Action</div>
+          <div class="result-text" style="color:var(--yellow)">${ai.immediate_action}</div>
+        </div>
+        <div style="margin-top:0.75rem">
+          <span class="severity-badge ${sevClass(ai.alert_level)}">${ai.alert_level} alert</span>
+        </div>` : `<div style="color:var(--green);font-size:0.875rem">${ai.immediate_action}</div>`}
+      </div>`;
+    area.style.display = 'block';
+    if (d.is_anomaly) addHistory({type:'anomaly_detection', service:d.service_name, time: new Date().toLocaleTimeString()});
+    loadStats();
+  } catch(e) {
+    area.innerHTML = `<div class="result-card"><div style="color:var(--red)">Error: ${e.message}</div></div>`;
+    area.style.display = 'block';
+  }
+  loading.style.display = 'none';
+}
+
+const historyItems = [];
+function addHistory(item) {
+  historyItems.unshift(item);
+  renderHistory();
+}
+
+function renderHistory() {
+  const el = document.getElementById('history-list');
+  if (!historyItems.length) { el.innerHTML = '<div class="history-empty">No analyses yet.</div>'; return; }
+  el.innerHTML = historyItems.slice(0,15).map(h => `
+    <div class="history-item">
+      <div class="history-type">${h.type.replace(/_/g,' ')}</div>
+      <div class="history-service">${h.service}</div>
+      <div class="history-time">${h.time}</div>
+    </div>`).join('');
+}
+
+async function loadHistory() {
+  try {
+    const r = await fetch(API + '/api/ai/analyses?limit=15');
+    const d = await r.json();
+    d.analyses.forEach(a => {
+      if (!historyItems.find(h => h.id === a.id)) {
+        historyItems.push({id:a.id, type:a.type, service:a.service_name, time: new Date(a.analyzed_at).toLocaleTimeString()});
+      }
+    });
+    renderHistory();
+  } catch(e) {}
+}
+
+function refreshPipelines() {
+  const list = document.getElementById('pipelines-list');
+  list.style.opacity = '0.5';
+  setTimeout(() => { list.style.opacity = '1'; }, 500);
+}
+
+function loadSample(tab) {
+  if (tab === 'failure') {
+    document.getElementById('f-service').value = 'order-service';
+    document.getElementById('f-pipeline').value = 'order-service-pipeline';
+    document.getElementById('f-stage').value = 'Run Tests';
+    document.getElementById('f-logs').value = 'FAILED test_main.py::test_create_order\nassert response.status_code == 201\nE assert 422 == 201\nconnection refused: db-host:5432';
+    document.getElementById('f-build').value = '7';
+  } else if (tab === 'scaling') {
+    document.getElementById('s-cpu').value = 88; document.getElementById('s-cpu-val').textContent = 88;
+    document.getElementById('s-mem').value = 72; document.getElementById('s-mem-val').textContent = 72;
+    document.getElementById('s-rps').value = 380; document.getElementById('s-rps-val').textContent = 380;
+    document.getElementById('s-err').value = 5; document.getElementById('s-err-val').textContent = 5;
+    document.getElementById('s-rt').value = 920;
+  } else if (tab === 'anomaly') {
+    document.getElementById('a-current').value = 95;
+    document.getElementById('a-baseline').value = 25;
+    document.getElementById('a-threshold').value = 50;
+    document.getElementById('a-metric').value = 'error_rate';
+  }
+}
+
+// Init
+checkHealth();
+setInterval(checkHealth, 30000);
+</script>
+</body>
+</html>
