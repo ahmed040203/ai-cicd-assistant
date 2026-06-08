@@ -1,17 +1,59 @@
+
 pipeline {
+
     agent any
+
     environment {
+
         AWS_REGION = 'us-east-1'
+
         AWS_ACCOUNT_ID = '897345560390'
+
         ECR_REGISTRY = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
         SERVICE_NAME = 'payment-service'
+
         IMAGE_NAME = "ai-cicd/${SERVICE_NAME}"
+
     }
+
     stages {
+
         stage('Checkout') { steps { checkout scm } }
+
         stage('Build') { steps { dir("services/${SERVICE_NAME}") { sh "docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} -t ${IMAGE_NAME}:latest ." } } }
+
         stage('Test') { steps { dir("services/${SERVICE_NAME}") { sh "docker run --rm -e TESTING=true ${IMAGE_NAME}:${BUILD_NUMBER} python -m pytest test_main.py -v 2>&1" } } }
-        stage('Push to ECR') { steps { script { sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY} && docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${ECR_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER} && docker push ${ECR_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER} && docker push ${ECR_REGISTRY}/${IMAGE_NAME}:latest" } } }
+
+        stage('Push to ECR') {
+
+            steps {
+
+                script {
+
+                    sh """
+
+                        aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+
+                        docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${ECR_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER}
+
+                        docker tag ${IMAGE_NAME}:latest ${ECR_REGISTRY}/${IMAGE_NAME}:latest
+
+                        docker push ${ECR_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER}
+
+                        docker push ${ECR_REGISTRY}/${IMAGE_NAME}:latest
+
+                    """
+
+                }
+
+            }
+
+        }
+
     }
+
     post { always { sh "docker rmi ${IMAGE_NAME}:${BUILD_NUMBER} || true" } }
+
 }
+
