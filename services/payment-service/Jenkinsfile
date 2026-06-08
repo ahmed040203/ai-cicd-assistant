@@ -1,0 +1,8 @@
+// Pipeline for payment-service
+// Inherits from shared template
+environment {
+    SERVICE_NAME = 'payment-service'
+}
+
+// Load and execute shared pipeline
+load 'jenkins/Jenkinsfile.template'

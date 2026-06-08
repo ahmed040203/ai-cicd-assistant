@@ -1,0 +1,8 @@
+// Pipeline for order-service
+// Inherits from shared template
+environment {
+    SERVICE_NAME = 'order-service'
+}
+
+// Load and execute shared pipeline
+load 'jenkins/Jenkinsfile.template'

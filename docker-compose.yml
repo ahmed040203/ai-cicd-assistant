@@ -1,0 +1,152 @@
+version: '3.8'
+
+services:
+  # ─────────────── Databases ───────────────
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: ai_cicd_db
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: localpassword123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ─────────────── Microservices ───────────────
+  user-service:
+    build: ./services/user-service
+    ports:
+      - "8001:8000"
+    environment:
+      - JWT_SECRET=local-dev-secret-change-in-production
+      - DATABASE_URL=postgresql://admin:localpassword123@postgres:5432/ai_cicd_db
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  product-service:
+    build: ./services/product-service
+    ports:
+      - "8002:8000"
+    environment:
+      - DATABASE_URL=postgresql://admin:localpassword123@postgres:5432/ai_cicd_db
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  order-service:
+    build: ./services/order-service
+    ports:
+      - "8003:8000"
+    environment:
+      - DATABASE_URL=postgresql://admin:localpassword123@postgres:5432/ai_cicd_db
+      - PRODUCT_SERVICE_URL=http://product-service:8000
+      - PAYMENT_SERVICE_URL=http://payment-service:8000
+    depends_on:
+      - product-service
+      - payment-service
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  payment-service:
+    build: ./services/payment-service
+    ports:
+      - "8004:8000"
+    environment:
+      - DATABASE_URL=postgresql://admin:localpassword123@postgres:5432/ai_cicd_db
+      - PAYMENT_FAILURE_RATE=0.05
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  notification-service:
+    build: ./services/notification-service
+    ports:
+      - "8005:8000"
+    environment:
+      - AWS_REGION=us-east-1
+      - ALERT_EMAIL=devops-team@example.com
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─────────────── AI Engine ───────────────
+  ai-engine:
+    build: ./ai-engine
+    ports:
+      - "8010:8000"
+    environment:
+      - AWS_REGION=us-east-1
+      - AWS_DEFAULT_REGION=us-east-1
+      - JENKINS_URL=http://jenkins:8080
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8000
+      - SQS_QUEUE_URL=${SQS_QUEUE_URL:-}
+      - BEDROCK_MODEL_ID=anthropic.claude-3-sonnet-20240229-v1:0
+    depends_on:
+      - notification-service
+    restart: unless-stopped
+
+  # ─────────────── Dashboard Backend ───────────────
+  dashboard-backend:
+    build: ./dashboard/backend
+    ports:
+      - "8020:8000"
+    environment:
+      - USER_SERVICE_URL=http://user-service:8000
+      - PRODUCT_SERVICE_URL=http://product-service:8000
+      - ORDER_SERVICE_URL=http://order-service:8000
+      - PAYMENT_SERVICE_URL=http://payment-service:8000
+      - AI_ENGINE_URL=http://ai-engine:8000
+      - AWS_REGION=us-east-1
+    depends_on:
+      - user-service
+      - ai-engine
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

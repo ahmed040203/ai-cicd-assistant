@@ -1,0 +1,8 @@
+// Pipeline for product-service
+// Inherits from shared template
+environment {
+    SERVICE_NAME = 'product-service'
+}
+
+// Load and execute shared pipeline
+load 'jenkins/Jenkinsfile.template'

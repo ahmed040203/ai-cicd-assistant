@@ -1,0 +1,282 @@
+// ─────────────────────────────────────────
+// AI CI/CD Assistant — Jenkins Pipeline
+// Used by all 5 microservices
+// ─────────────────────────────────────────
+
+def SERVICE_NAME = env.SERVICE_NAME ?: 'user-service'
+def AWS_REGION   = env.AWS_REGION   ?: 'us-east-1'
+def AWS_ACCOUNT  = env.AWS_ACCOUNT_ID
+def ECR_REGISTRY = "${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+def IMAGE_NAME   = "ai-cicd/${SERVICE_NAME}"
+def IMAGE_TAG    = "${env.BUILD_NUMBER}-${env.GIT_COMMIT?.take(7) ?: 'latest'}"
+def ECS_CLUSTER  = "ai-cicd-cluster"
+def AI_ENGINE_URL = env.AI_ENGINE_URL ?: 'http://localhost:8010'
+
+pipeline {
+    agent any
+
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timeout(time: 30, unit: 'MINUTES')
+        timestamps()
+    }
+
+    environment {
+        AWS_DEFAULT_REGION = "${AWS_REGION}"
+        FULL_IMAGE = "${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+        FULL_IMAGE_LATEST = "${ECR_REGISTRY}/${IMAGE_NAME}:latest"
+    }
+
+    stages {
+        // ── 1. Checkout ──────────────────────────────
+        stage('Checkout') {
+            steps {
+                checkout scm
+                script {
+                    currentBuild.displayName = "#${BUILD_NUMBER} - ${SERVICE_NAME} - ${IMAGE_TAG}"
+                    echo "Building: ${SERVICE_NAME} | Tag: ${IMAGE_TAG}"
+                }
+            }
+        }
+
+        // ── 2. Build Docker Image ────────────────────
+        stage('Build') {
+            steps {
+                dir("services/${SERVICE_NAME}") {
+                    script {
+                        echo "Building Docker image for ${SERVICE_NAME}..."
+                        sh """
+                            docker build \
+                                --label "build.number=${BUILD_NUMBER}" \
+                                --label "git.commit=${GIT_COMMIT}" \
+                                --label "service.name=${SERVICE_NAME}" \
+                                -t ${IMAGE_NAME}:${IMAGE_TAG} \
+                                -t ${IMAGE_NAME}:latest \
+                                .
+                        """
+                    }
+                }
+            }
+            post {
+                failure {
+                    script {
+                        notifyAI('Build', currentBuild.rawBuild.getLog(50).join('\n'))
+                    }
+                }
+            }
+        }
+
+        // ── 3. Run Tests ─────────────────────────────
+        stage('Test') {
+            steps {
+                dir("services/${SERVICE_NAME}") {
+                    script {
+                        echo "Running tests for ${SERVICE_NAME}..."
+                        sh """
+                            docker run --rm \
+                                -e TESTING=true \
+                                ${IMAGE_NAME}:${IMAGE_TAG} \
+                                python -m pytest test_main.py -v \
+                                --tb=short \
+                                --junit-xml=/tmp/test-results.xml \
+                                2>&1
+                        """
+                    }
+                }
+            }
+            post {
+                failure {
+                    script {
+                        def logs = currentBuild.rawBuild.getLog(100).join('\n')
+                        notifyAI('Test', logs)
+                    }
+                }
+            }
+        }
+
+        // ── 4. Security Scan ─────────────────────────
+        stage('Security Scan') {
+            steps {
+                script {
+                    echo "Running Trivy security scan..."
+                    sh """
+                        docker run --rm \
+                            -v /var/run/docker.sock:/var/run/docker.sock \
+                            aquasec/trivy:latest image \
+                            --exit-code 0 \
+                            --severity HIGH,CRITICAL \
+                            --format table \
+                            ${IMAGE_NAME}:${IMAGE_TAG} || true
+                    """
+                }
+            }
+        }
+
+        // ── 5. Push to ECR ───────────────────────────
+        stage('Push to ECR') {
+            steps {
+                script {
+                    echo "Authenticating with ECR..."
+                    sh """
+                        aws ecr get-login-password --region ${AWS_REGION} | \
+                        docker login --username AWS --password-stdin ${ECR_REGISTRY}
+
+                        docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${FULL_IMAGE}
+                        docker tag ${IMAGE_NAME}:latest ${FULL_IMAGE_LATEST}
+
+                        docker push ${FULL_IMAGE}
+                        docker push ${FULL_IMAGE_LATEST}
+
+                        echo "Pushed: ${FULL_IMAGE}"
+                    """
+                }
+            }
+            post {
+                failure {
+                    script {
+                        notifyAI('Push to ECR', currentBuild.rawBuild.getLog(30).join('\n'))
+                    }
+                }
+            }
+        }
+
+        // ── 6. Deploy to ECS ─────────────────────────
+        stage('Deploy to ECS') {
+            steps {
+                script {
+                    echo "Deploying ${SERVICE_NAME} to ECS..."
+                    sh """
+                        # Get current task definition
+                        TASK_DEF=\$(aws ecs describe-task-definition \
+                            --task-definition ${SERVICE_NAME} \
+                            --query 'taskDefinition' \
+                            --output json)
+
+                        # Update image in task definition
+                        NEW_TASK_DEF=\$(echo \$TASK_DEF | python3 -c "
+import json, sys
+td = json.load(sys.stdin)
+td['containerDefinitions'][0]['image'] = '${FULL_IMAGE}'
+# Remove fields that can't be in register call
+for field in ['taskDefinitionArn','revision','status','requiresAttributes','compatibilities','registeredAt','registeredBy']:
+    td.pop(field, None)
+print(json.dumps(td))
+")
+                        # Register new task definition
+                        NEW_TASK_ARN=\$(aws ecs register-task-definition \
+                            --cli-input-json "\$NEW_TASK_DEF" \
+                            --query 'taskDefinition.taskDefinitionArn' \
+                            --output text)
+
+                        echo "New task definition: \$NEW_TASK_ARN"
+
+                        # Update ECS service
+                        aws ecs update-service \
+                            --cluster ${ECS_CLUSTER} \
+                            --service ${SERVICE_NAME} \
+                            --task-definition \$NEW_TASK_ARN \
+                            --force-new-deployment
+
+                        # Wait for deployment to stabilize
+                        aws ecs wait services-stable \
+                            --cluster ${ECS_CLUSTER} \
+                            --services ${SERVICE_NAME}
+
+                        echo "Deployment successful!"
+                    """
+                }
+            }
+            post {
+                failure {
+                    script {
+                        notifyAI('Deploy to ECS', currentBuild.rawBuild.getLog(50).join('\n'))
+                    }
+                }
+            }
+        }
+
+        // ── 7. Health Check ──────────────────────────
+        stage('Health Check') {
+            steps {
+                script {
+                    echo "Running post-deployment health check..."
+                    sh """
+                        sleep 15
+                        # Check service health via ALB
+                        for i in 1 2 3; do
+                            STATUS=\$(curl -s -o /dev/null -w "%{http_code}" \
+                                http://\${ALB_DNS}/${SERVICE_NAME}/health 2>/dev/null || echo "000")
+                            if [ "\$STATUS" = "200" ]; then
+                                echo "Health check passed!"
+                                exit 0
+                            fi
+                            echo "Attempt \$i failed (status: \$STATUS), retrying..."
+                            sleep 10
+                        done
+                        echo "Health check failed after 3 attempts"
+                        exit 1
+                    """
+                }
+            }
+            post {
+                failure {
+                    script {
+                        notifyAI('Health Check', "Service failed health check after deployment")
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            script {
+                echo "Pipeline SUCCESS: ${SERVICE_NAME} #${BUILD_NUMBER}"
+                // Notify AI engine about successful deployment for metrics baseline
+                try {
+                    httpRequest(
+                        url: "${AI_ENGINE_URL}/api/ai/stats",
+                        validResponseCodes: '200'
+                    )
+                } catch (Exception e) {
+                    echo "Could not update AI metrics: ${e.message}"
+                }
+            }
+        }
+        failure {
+            echo "Pipeline FAILED: ${SERVICE_NAME} #${BUILD_NUMBER}"
+        }
+        always {
+            // Cleanup local Docker images to save disk
+            sh "docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true"
+            sh "docker rmi ${IMAGE_NAME}:latest || true"
+        }
+    }
+}
+
+// ─────────────────────────────────────────
+// Helper: Send failure to AI Engine
+// ─────────────────────────────────────────
+def notifyAI(String failedStage, String errorLogs) {
+    try {
+        def payload = [
+            pipeline_name: env.JOB_NAME,
+            service_name:  SERVICE_NAME,
+            failed_stage:  failedStage,
+            error_logs:    errorLogs.take(3000),
+            build_number:  env.BUILD_NUMBER.toInteger(),
+            branch:        env.GIT_BRANCH ?: 'main',
+            commit_sha:    env.GIT_COMMIT
+        ]
+        httpRequest(
+            url: "${AI_ENGINE_URL}/api/ai/analyze-failure",
+            httpMode: 'POST',
+            contentType: 'APPLICATION_JSON',
+            requestBody: groovy.json.JsonOutput.toJson(payload),
+            validResponseCodes: '200,201'
+        )
+        echo "✅ AI Engine notified about failure in stage: ${failedStage}"
+    } catch (Exception e) {
+        echo "⚠️ Could not notify AI Engine: ${e.message}"
+    }
+}
