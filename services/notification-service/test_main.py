@@ -17,9 +17,9 @@ def test_health():
 
     assert response.status_code == 200
 
-def test_root():
+def test_get_notifications():
 
-    response = client.get("/")
+    response = client.get("/api/notifications")
 
     assert response.status_code == 200
 

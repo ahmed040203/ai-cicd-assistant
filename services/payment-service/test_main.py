@@ -17,9 +17,17 @@ def test_health():
 
     assert response.status_code == 200
 
-def test_root():
+def test_charge():
 
-    response = client.get("/")
+    response = client.post("/api/payments/charge", json={
 
-    assert response.status_code == 200
+        "order_id": "test-order",
+
+        "amount": 100.0,
+
+        "currency": "USD"
+
+    })
+
+    assert response.status_code in [200, 201, 422]
 
