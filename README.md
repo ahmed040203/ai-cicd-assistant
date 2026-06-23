@@ -1,7 +1,5 @@
 # AI-Powered CI/CD Assistant
 
-> مشروع تخرج — تراك DevOps | الرواد الرقميون
-
 ## Overview
 
 AI-Powered CI/CD Assistant that manages an e-commerce microservices application on AWS. The system uses AI (AWS Bedrock / Claude) to automatically:
